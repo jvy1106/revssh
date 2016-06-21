@@ -21,7 +21,7 @@ jesse-laptop			28207		disabled
 I also have the revssh client installed on my laptop. So now to connect my laptop to the server I run:
 
 <pre>
-jesse@laptop$ ./revssh -s jesse-laptop admin.buildpulse.com
+jesse@laptop$ ./revssh -s jesse-laptop myserver.server.com
 </pre>
 
 now back on the server
