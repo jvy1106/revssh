@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+set -u
+#set -x
+
+SSH_VERBOSE=
+CLIENT_LIST=~/.revssh
+CLIENT_USER=jesse
+SERVER_USER=jesse
+CLIENT_SSH_PORT=22
+SERVER_SSH_PORT=22
+
+function get_port() {
+    #converts a string into a valid port number
+    string=$1
+    #all hashed ports will be between 20000-29000
+    base_port=20000
+    #used the magic python wand to do the consistent hashing and modding
+    hash=$(python -c "import ctypes; print ctypes.c_uint32(str('$string').__hash__()).value % 9000")
+    echo $(($base_port + $hash))
+}
+
+function list_clients() {
+    #lists all clients
+    if [ ! -f $CLIENT_LIST ];
+    then
+        echo "Error: Missing $CLIENT_LIST"
+        return 1
+    fi
+
+    echo -e "CLIENT_ID\t\tPORT\t\tSTATUS\n"
+    for client in $(cat $CLIENT_LIST)
+    do
+        port=$(get_port $client)
+        status=$(netstat -nl | grep "tcp" | grep ":$port")
+        if [ -z "${status}" ]
+        then
+            status="disabled"
+        else
+            status="active"
+        fi
+        echo -e "$client\t\t\t$port\t\t$status"
+    done
+    return 0
+}
+
+function run_cmd() {
+    #run a command on client
+    client_id=$2
+    cmd=${@:3:${#@}}
+    port=$(get_port $client_id)
+    ssh $SSH_VERBOSE $CLIENT_USER@localhost -p $port $cmd
+    return $?
+}
+
+function connect() {
+    #ssh to client
+    client_id=$1
+    port=$(get_port $client_id)
+    ssh $SSH_VERBOSE $CLIENT_USER@localhost -p $port
+    return $?
+}
+
+function start_tunnel() {
+    #start reverse tunnel
+    client_id=$1
+    server=$2
+    port=$(get_port $client_id)
+    ssh $SSH_VERBOSE -q -N -R $port:localhost:$CLIENT_SSH_PORT $SERVER_USER@$server -p $SERVER_SSH_PORT
+    return $?
+}
+
+function usage() {
+cat << EOF
+usage: $0 options
+
+This script manages reverse ssh tunnels
+
+OPTIONS:
+   -h                   Show this message
+   -l                   List all connected clients
+   -c CLIENT_ID COMMAND Run command on client
+   -o CLIENT_ID         Open terminal on client
+   -s CLIENT_ID SERVER  Start reverse tunnel on server
+EOF
+}
+
+function main() {
+    while getopts "hlcos" OPTION
+    do
+        case $OPTION in
+        h)
+            usage
+            exit 1
+            ;;
+        l)
+            list_clients
+            exit $?
+            ;;
+        c)
+            if [ -z "${2+isset}" ] || [ -z "${3+isset}" ]
+            then
+                echo "usage: $0 -c CLIENT_ID COMMAND"
+                exit 1
+            fi
+            run_cmd $@
+            exit $?
+            ;;
+        o)
+            if [ -z "${2+isset}" ]
+            then
+                echo "usage: $0 -o CLIENT_ID"
+                exit 1
+            fi
+            connect $2
+            exit $?
+            ;;
+        s)
+            if [ -z "${2+isset}" ] || [ -z "${3+isset}" ]
+            then
+                echo "usage: $0 -s CLIENT_ID SERVER"
+                exit 1
+            fi
+            start_tunnel $2 $3
+            exit $?
+            ;;
+        ?)
+            usage
+            exit 1
+            ;;
+        esac
+    done
+    usage
+    exit 1
+}
+main $@
